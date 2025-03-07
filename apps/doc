@@ -1,0 +1,140 @@
+# **Automating Kubernetes Deployments with ArgoCD and GitHub Actions on GKE**
+
+## **1. Introduction**
+This document provides a step-by-step guide to automating Kubernetes deployments on **Google Kubernetes Engine (GKE)** using **ArgoCD** and **GitHub Actions**. It covers setting up the GKE cluster, installing and configuring ArgoCD, deploying applications, enabling automatic synchronization, and automating CI/CD with GitHub Actions.
+
+## **2. Setting Up Google Kubernetes Engine (GKE)**
+### **2.1 Create a GKE Cluster**
+Run the following command to create a GKE cluster:
+```sh
+ gcloud container clusters create my-cluster \
+ --zone us-central1-c \
+ --num-nodes 2 \
+ --enable-autoscaling --min-nodes 1 --max-nodes 3
+```
+### **2.2 Configure kubectl**
+Connect `kubectl` to your cluster:
+```sh
+gcloud container clusters get-credentials my-cluster --zone us-central1-c
+```
+### **2.3 Verify the Cluster**
+```sh
+kubectl get nodes
+```
+
+## **3. Installing ArgoCD**
+### **3.1 Install ArgoCD in Kubernetes**
+```sh
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+```
+### **3.2 Install ArgoCD CLI**
+```sh
+brew install argocd  # macOS
+choco install argocd-cli  # Windows
+```
+### **3.3 Access ArgoCD UI**
+```sh
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+```
+Login at `https://localhost:8080` using:
+```sh
+kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d
+argocd login localhost:8080
+```
+
+## **4. Deploying Applications with ArgoCD**
+### **4.1 Register the Cluster with ArgoCD**
+```sh
+argocd cluster add gke
+```
+### **4.2 Deploy an Application**
+```sh
+argocd app create nginx-app \
+ --repo https://github.com/your-repo.git \
+ --path manifests \
+ --dest-server https://kubernetes.default.svc \
+ --dest-namespace default
+```
+Sync the app:
+```sh
+argocd app sync nginx-app
+```
+
+## **5. Enabling Automatic Sync in ArgoCD**
+Enable auto-sync for your app:
+```sh
+argocd app set nginx-app --sync-policy automated --auto-prune --self-heal
+```
+### **Testing Auto-Sync**
+Modify `deployment.yaml`:
+```yaml
+spec:
+  replicas: 3  # Change from 2 to 3
+```
+Commit and push changes:
+```sh
+git add .
+git commit -m "Updated replicas to 3"
+git push origin main
+```
+ArgoCD should automatically deploy the changes.
+
+## **6. Automating CI/CD with GitHub Actions**
+### **6.1 Create a GitHub Actions Workflow**
+Create `.github/workflows/deploy.yml`:
+```yaml
+name: Deploy to GKE
+on:
+  push:
+    branches:
+      - main
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+      - name: Authenticate with GKE
+        run: echo "${{ secrets.GKE_KEY }}" | base64 --decode > gke-key.json
+      - name: Configure kubectl
+        run: gcloud auth activate-service-account --key-file=gke-key.json
+      - name: Deploy to Kubernetes
+        run: kubectl apply -f manifests/
+```
+### **6.2 Commit and Push**
+```sh
+git add .
+git commit -m "Added GitHub Actions workflow"
+git push origin main
+```
+
+## **7. Challenges Faced and Solutions**
+### **7.1 ArgoCD Not Auto-Syncing**
+**Issue:** Changes were not deployed automatically.
+**Solution:** Enabled auto-sync:
+```sh
+argocd app set nginx-app --sync-policy automated --auto-prune --self-heal
+```
+Restarted ArgoCD:
+```sh
+kubectl rollout restart deployment argocd-server -n argocd
+```
+
+### **7.2 ArgoCD Login Issues**
+**Issue:** Unable to log in to ArgoCD UI.
+**Solution:** Retrieved the password:
+```sh
+kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath="{.data.password}" | base64 -d
+```
+
+## **8. Conclusion**
+By following these steps, we successfully:
+- Set up a **GKE cluster**
+- Installed **ArgoCD**
+- Deployed an **Nginx application**
+- Enabled **automatic synchronization**
+- Integrated **GitHub Actions for CI/CD**
+
+This setup ensures that any change pushed to GitHub is **automatically deployed** to GKE, achieving a **fully automated GitOps pipeline**! 🚀
+
